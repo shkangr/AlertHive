@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -11,4 +5,324 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─── Users & Teams ────────────────────────────────────────
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  passwordHash   String
+  phone          String?
+  slackUserId    String?
+  role           UserRole @default(USER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  teamMembers         TeamMember[]
+  escalationTargets   EscalationTarget[]
+  incidentResponders  IncidentResponder[]
+  incidentLogs        IncidentLog[]
+  scheduleOverrides   ScheduleOverride[]
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members  TeamMember[]
+  services Service[]
+}
+
+model TeamMember {
+  id     String         @id @default(cuid())
+  role   TeamMemberRole @default(MEMBER)
+
+  teamId String
+  team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+enum TeamMemberRole {
+  MANAGER
+  MEMBER
+}
+
+// ─── Services & Integrations ──────────────────────────────
+
+model Service {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  status      ServiceStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  teamId             String?
+  team               Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  escalationPolicyId String?
+  escalationPolicy   EscalationPolicy? @relation(fields: [escalationPolicyId], references: [id], onDelete: SetNull)
+
+  incidents    Incident[]
+  alerts       Alert[]
+  integrations Integration[]
+}
+
+enum ServiceStatus {
+  ACTIVE
+  WARNING
+  CRITICAL
+  MAINTENANCE
+  DISABLED
+}
+
+model Integration {
+  id             String @id @default(cuid())
+  name           String
+  integrationKey String @unique @default(cuid())
+  createdAt      DateTime @default(now())
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  alerts Alert[]
+}
+
+// ─── Escalation Policies ──────────────────────────────────
+
+model EscalationPolicy {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  repeatCount Int    @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules    EscalationRule[]
+  services Service[]
+}
+
+model EscalationRule {
+  id               String @id @default(cuid())
+  order            Int
+  timeoutMinutes   Int    @default(30)
+
+  escalationPolicyId String
+  escalationPolicy   EscalationPolicy @relation(fields: [escalationPolicyId], references: [id], onDelete: Cascade)
+
+  targets EscalationTarget[]
+
+  @@unique([escalationPolicyId, order])
+}
+
+model EscalationTarget {
+  id         String               @id @default(cuid())
+  targetType EscalationTargetType
+
+  escalationRuleId String
+  escalationRule   EscalationRule @relation(fields: [escalationRuleId], references: [id], onDelete: Cascade)
+
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheduleId String?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+}
+
+enum EscalationTargetType {
+  USER
+  SCHEDULE
+}
+
+// ─── Schedules & On-Call ──────────────────────────────────
+
+model Schedule {
+  id        String   @id @default(cuid())
+  name      String
+  timezone  String   @default("Asia/Seoul")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  layers            ScheduleLayer[]
+  overrides         ScheduleOverride[]
+  onCallEntries     OnCallEntry[]
+  escalationTargets EscalationTarget[]
+}
+
+model ScheduleLayer {
+  id             String       @id @default(cuid())
+  name           String
+  order          Int
+  rotationType   RotationType
+  shiftDuration  Int          // in hours
+  startTime      DateTime
+  createdAt      DateTime     @default(now())
+
+  scheduleId String
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  participants ScheduleLayerParticipant[]
+
+  @@unique([scheduleId, order])
+}
+
+enum RotationType {
+  DAILY
+  WEEKLY
+  CUSTOM
+}
+
+model ScheduleLayerParticipant {
+  id    String @id @default(cuid())
+  order Int
+
+  layerId String
+  layer   ScheduleLayer @relation(fields: [layerId], references: [id], onDelete: Cascade)
+  userId  String
+
+  @@unique([layerId, order])
+}
+
+model ScheduleOverride {
+  id        String   @id @default(cuid())
+  startTime DateTime
+  endTime   DateTime
+  createdAt DateTime @default(now())
+
+  scheduleId String
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OnCallEntry {
+  id        String   @id @default(cuid())
+  startTime DateTime
+  endTime   DateTime
+  userId    String
+
+  scheduleId String
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+}
+
+// ─── Incidents ────────────────────────────────────────────
+
+model Incident {
+  id          String           @id @default(cuid())
+  number      Int              @unique @default(autoincrement())
+  title       String
+  description String?
+  status      IncidentStatus   @default(TRIGGERED)
+  urgency     IncidentUrgency  @default(HIGH)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  logs       IncidentLog[]
+  responders IncidentResponder[]
+  alerts     Alert[]
+}
+
+enum IncidentStatus {
+  TRIGGERED
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum IncidentUrgency {
+  HIGH
+  LOW
+}
+
+model IncidentLog {
+  id        String          @id @default(cuid())
+  type      IncidentLogType
+  message   String
+  createdAt DateTime        @default(now())
+
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+enum IncidentLogType {
+  CREATED
+  ACKNOWLEDGED
+  RESOLVED
+  ESCALATED
+  NOTIFIED
+  RESPONDER_ADDED
+  NOTE
+  REASSIGNED
+}
+
+model IncidentResponder {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  incidentId String
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([incidentId, userId])
+}
+
+// ─── Alerts ───────────────────────────────────────────────
+
+model Alert {
+  id          String      @id @default(cuid())
+  dedupKey    String?
+  summary     String
+  severity    AlertSeverity @default(ERROR)
+  rawPayload  Json?
+  status      AlertStatus @default(OPEN)
+  createdAt   DateTime    @default(now())
+
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  integrationId String?
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  incidentId    String?
+  incident      Incident?   @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+}
+
+enum AlertSeverity {
+  CRITICAL
+  ERROR
+  WARNING
+  INFO
+}
+
+enum AlertStatus {
+  OPEN
+  RESOLVED
+}
+
+// ─── Slack Config ─────────────────────────────────────────
+
+model SlackConfig {
+  id            String   @id @default(cuid())
+  botToken      String
+  signingSecret String
+  channelId     String
+  channelName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
