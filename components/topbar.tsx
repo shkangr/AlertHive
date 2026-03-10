@@ -1,5 +1,7 @@
 "use client";
 
+import { useSession, signOut } from "next-auth/react";
+import Link from "next/link";
 import { Bell, ChevronRight } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -15,6 +17,17 @@ interface TopbarProps {
 }
 
 export function Topbar({ breadcrumbs }: TopbarProps) {
+  const { data: session } = useSession();
+
+  const initials = session?.user?.name
+    ? session.user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "U";
+
   return (
     <header className="flex h-14 items-center justify-between border-b bg-white px-4 lg:px-6">
       {/* Breadcrumbs */}
@@ -59,15 +72,38 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
           <DropdownMenuTrigger className="flex items-center gap-2 rounded-md p-1 hover:bg-muted">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="bg-[#06AC38] text-xs text-white">
-                U
+                {initials}
               </AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+            {session?.user?.name && (
+              <>
+                <div className="px-2 py-1.5 text-sm font-medium">
+                  {session.user.name}
+                </div>
+                <div className="px-2 pb-1.5 text-xs text-muted-foreground">
+                  {session.user.email}
+                </div>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem
+              onClick={() => (window.location.href = "/settings/profile")}
+            >
+              Profile
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                (window.location.href = "/settings/notifications")
+              }
+            >
+              Notifications
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Log out</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
