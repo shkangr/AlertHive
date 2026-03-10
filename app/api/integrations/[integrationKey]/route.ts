@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@/lib/generated/prisma/client';
+import { triggerEscalation } from '@/lib/escalation';
 
 const webhookPayloadSchema = z.object({
   summary: z.string().min(1, 'summary is required'),
@@ -119,6 +120,11 @@ export async function POST(
       });
 
       return { alert, incident };
+    });
+
+    // Trigger escalation (fire-and-forget — don't block the webhook response)
+    triggerEscalation(result.incident.id).catch((err) => {
+      console.error('Failed to trigger escalation:', err);
     });
 
     return NextResponse.json(
