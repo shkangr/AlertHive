@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { calculateOnCall } from '@/lib/oncall';
 import { incidentEvents } from '@/lib/event-emitter';
+import { sendEscalationDM } from '@/lib/slack';
 import { ensureBossStarted, ESCALATION_QUEUE } from '@/lib/queue';
 
 interface EscalationJobData {
@@ -51,7 +52,7 @@ export async function triggerEscalation(incidentId: string): Promise<void> {
   }
 
   // Start at step 0 (first rule)
-  await notifyAndSchedule(incidentId, policy, 0, 0);
+  await notifyAndSchedule(incident, policy, 0, 0);
 }
 
 /**
@@ -110,7 +111,7 @@ export async function escalateToNextStep(
     });
 
     emitEscalationEvent(incident);
-    await notifyAndSchedule(incidentId, policy, nextStep, currentRepeat);
+    await notifyAndSchedule(incident, policy, nextStep, currentRepeat);
   } else if (currentRepeat + 1 < policy.repeatCount) {
     // No more steps but can repeat — restart from step 0
     const nextRepeat = currentRepeat + 1;
@@ -124,7 +125,7 @@ export async function escalateToNextStep(
     });
 
     emitEscalationEvent(incident);
-    await notifyAndSchedule(incidentId, policy, 0, nextRepeat);
+    await notifyAndSchedule(incident, policy, 0, nextRepeat);
   } else {
     console.log(`[Escalation] All escalation steps exhausted for incident ${incidentId}`);
   }
@@ -224,20 +225,34 @@ interface PolicyWithRules {
  * Notify targets at the given step and schedule the timeout job for the next step.
  */
 async function notifyAndSchedule(
-  incidentId: string,
+  incident: IncidentForEvent & { service: { name: string } },
   policy: PolicyWithRules,
   step: number,
   repeat: number
 ): Promise<void> {
+  const incidentId = incident.id;
   const rule = policy.rules[step];
   if (!rule) return;
 
+  // Prepare incident data for Slack DMs
+  const incidentForSlack = {
+    id: incident.id,
+    number: incident.number,
+    title: incident.title,
+    status: incident.status,
+    urgency: incident.urgency,
+    service: incident.service,
+    createdAt: incident.createdAt,
+  };
+
   // Resolve all targets for this step
   const notifiedUsers: string[] = [];
+  const notifiedUserIds: string[] = [];
 
   for (const target of rule.targets) {
     if (target.targetType === 'USER' && target.user) {
       notifiedUsers.push(target.user.name);
+      notifiedUserIds.push(target.user.id);
 
       await prisma.incidentLog.create({
         data: {
@@ -254,6 +269,7 @@ async function notifyAndSchedule(
       if (onCallResult && onCallResult.onCallUsers.length > 0) {
         for (const onCallUser of onCallResult.onCallUsers) {
           notifiedUsers.push(onCallUser.userName);
+          notifiedUserIds.push(onCallUser.userId);
 
           await prisma.incidentLog.create({
             data: {
@@ -268,6 +284,13 @@ async function notifyAndSchedule(
         console.warn(`[Escalation] No on-call users found for schedule ${target.scheduleId}`);
       }
     }
+  }
+
+  // Send Slack DMs to notified users (fire-and-forget)
+  for (const userId of notifiedUserIds) {
+    sendEscalationDM(userId, incidentForSlack).catch((err) => {
+      console.error(`[Escalation] Failed to send Slack DM to ${userId}:`, err);
+    });
   }
 
   console.log(`[Escalation] Step ${step + 1}: Notified [${notifiedUsers.join(', ')}] for incident ${incidentId}`);
