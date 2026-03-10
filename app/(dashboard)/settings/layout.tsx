@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { User, Bell } from "lucide-react";
+import { User, Bell, Puzzle } from "lucide-react";
 
 const settingsNav = [
   { label: "Profile", href: "/settings/profile", icon: User },
   { label: "Notifications", href: "/settings/notifications", icon: Bell },
+  { label: "Integrations", href: "/settings/integrations/slack", icon: Puzzle },
 ];
 
 export default function SettingsLayout({
@@ -21,7 +22,7 @@ export default function SettingsLayout({
     <div className="flex flex-col gap-6 lg:flex-row">
       <nav className="flex gap-1 lg:w-48 lg:flex-col lg:shrink-0">
         {settingsNav.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
