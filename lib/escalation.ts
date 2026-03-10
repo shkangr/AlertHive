@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { calculateOnCall } from '@/lib/oncall';
+import { incidentEvents } from '@/lib/event-emitter';
 import { ensureBossStarted, ESCALATION_QUEUE } from '@/lib/queue';
 
 interface EscalationJobData {
@@ -108,6 +109,7 @@ export async function escalateToNextStep(
       },
     });
 
+    emitEscalationEvent(incident);
     await notifyAndSchedule(incidentId, policy, nextStep, currentRepeat);
   } else if (currentRepeat + 1 < policy.repeatCount) {
     // No more steps but can repeat — restart from step 0
@@ -121,6 +123,7 @@ export async function escalateToNextStep(
       },
     });
 
+    emitEscalationEvent(incident);
     await notifyAndSchedule(incidentId, policy, 0, nextRepeat);
   } else {
     console.log(`[Escalation] All escalation steps exhausted for incident ${incidentId}`);
@@ -167,6 +170,38 @@ export async function startEscalationWorker(): Promise<void> {
 }
 
 // ─── Internal Helpers ────────────────────────────────────────
+
+interface IncidentForEvent {
+  id: string;
+  number: number;
+  title: string;
+  status: string;
+  urgency: string;
+  serviceId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  acknowledgedAt: Date | null;
+  resolvedAt: Date | null;
+}
+
+function emitEscalationEvent(incident: IncidentForEvent) {
+  incidentEvents.emitIncidentUpdate({
+    type: 'escalated',
+    incident: {
+      id: incident.id,
+      number: incident.number,
+      title: incident.title,
+      status: incident.status,
+      urgency: incident.urgency,
+      serviceId: incident.serviceId,
+      createdAt: incident.createdAt.toISOString(),
+      updatedAt: incident.updatedAt.toISOString(),
+      acknowledgedAt: incident.acknowledgedAt?.toISOString() ?? null,
+      resolvedAt: incident.resolvedAt?.toISOString() ?? null,
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
 
 interface PolicyWithRules {
   id: string;

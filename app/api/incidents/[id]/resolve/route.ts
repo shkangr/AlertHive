@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { cancelEscalation } from '@/lib/escalation';
+import { incidentEvents } from '@/lib/event-emitter';
 
 export async function POST(
   request: NextRequest,
@@ -55,6 +56,24 @@ export async function POST(
 
     // Cancel escalation timer
     await cancelEscalation(id);
+
+    // Emit SSE event
+    incidentEvents.emitIncidentUpdate({
+      type: 'resolved',
+      incident: {
+        id: updated.id,
+        number: updated.number,
+        title: updated.title,
+        status: updated.status,
+        urgency: updated.urgency,
+        serviceId: updated.serviceId,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+        acknowledgedAt: updated.acknowledgedAt?.toISOString() ?? null,
+        resolvedAt: updated.resolvedAt?.toISOString() ?? null,
+      },
+      timestamp: new Date().toISOString(),
+    });
 
     return NextResponse.json(updated);
   } catch (error) {
