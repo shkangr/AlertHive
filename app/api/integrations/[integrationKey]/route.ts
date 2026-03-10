@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
+import type { Prisma } from '@/lib/generated/prisma/client';
 
 const webhookPayloadSchema = z.object({
   summary: z.string().min(1, 'summary is required'),
@@ -66,7 +67,7 @@ export async function POST(
           data: {
             summary,
             severity,
-            rawPayload: rawPayload ?? undefined,
+            rawPayload: (rawPayload as Prisma.InputJsonValue) ?? undefined,
           },
         });
 
@@ -83,7 +84,7 @@ export async function POST(
     }
 
     // Create new alert and incident in a transaction
-    const result = await prisma.$transaction(async (tx: typeof prisma) => {
+    const result = await prisma.$transaction(async (tx) => {
       // Create the incident
       const incident = await tx.incident.create({
         data: {
@@ -100,7 +101,7 @@ export async function POST(
           summary,
           severity,
           dedupKey: dedupKey ?? null,
-          rawPayload: rawPayload ?? undefined,
+          rawPayload: (rawPayload as Prisma.InputJsonValue) ?? undefined,
           status: 'OPEN',
           serviceId,
           integrationId: integration.id,
