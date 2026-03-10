@@ -1,18 +1,8 @@
-import { auth } from '@/lib/auth';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 
-export default auth((req) => {
-  const { nextUrl } = req;
-  const isAuthenticated = !!req.auth;
-
-  const publicPaths = ['/login', '/signup', '/api/auth'];
-  const isPublic = publicPaths.some((path) =>
-    nextUrl.pathname.startsWith(path),
-  );
-
-  if (!isAuthenticated && !isPublic) {
-    return Response.redirect(new URL('/login', nextUrl));
-  }
-});
+// Edge-compatible middleware — no Prisma, no Node.js dependencies
+export default NextAuth(authConfig).auth;
 
 export const config = {
   matcher: [
@@ -23,7 +13,5 @@ export const config = {
     '/escalation-policies/:path*',
     '/teams/:path*',
     '/settings/:path*',
-    '/login',
-    '/signup',
   ],
 };
