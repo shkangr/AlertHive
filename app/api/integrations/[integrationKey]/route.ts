@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import type { Prisma } from '@/lib/generated/prisma/client';
 import { triggerEscalation } from '@/lib/escalation';
 import { incidentEvents } from '@/lib/event-emitter';
+import { sendIncidentNotification } from '@/lib/slack';
 
 const webhookPayloadSchema = z.object({
   summary: z.string().min(1, 'summary is required'),
@@ -139,6 +140,14 @@ export async function POST(
         resolvedAt: null,
       },
       timestamp: new Date().toISOString(),
+    });
+
+    // Send Slack channel notification (fire-and-forget)
+    sendIncidentNotification({
+      ...result.incident,
+      service: integration.service,
+    }).catch((err) => {
+      console.error('Failed to send Slack notification:', err);
     });
 
     // Trigger escalation (fire-and-forget — don't block the webhook response)
