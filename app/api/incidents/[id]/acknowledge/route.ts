@@ -1,56 +1,86 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
+import { prisma } from '@/lib/db';
+import { cancelEscalation } from '@/lib/escalation';
+import { incidentEvents } from '@/lib/event-emitter';
 
 export async function POST(
-  _request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-  const { id } = await params;
+    const { id } = await params;
 
-  const incident = await prisma.incident.findUnique({
-    where: { id },
-    select: { status: true },
-  });
+    const incident = await prisma.incident.findUnique({
+      where: { id },
+    });
 
-  if (!incident) {
-    return NextResponse.json({ error: "Incident not found" }, { status: 404 });
-  }
+    if (!incident) {
+      return NextResponse.json({ error: 'Incident not found' }, { status: 404 });
+    }
 
-  if (incident.status !== "TRIGGERED") {
+    if (incident.status !== 'TRIGGERED') {
+      return NextResponse.json(
+        { error: `Cannot acknowledge incident with status ${incident.status}` },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedIncident = await tx.incident.update({
+        where: { id },
+        data: {
+          status: 'ACKNOWLEDGED',
+          acknowledgedAt: now,
+        },
+      });
+
+      await tx.incidentLog.create({
+        data: {
+          type: 'ACKNOWLEDGED',
+          message: `Acknowledged by ${session.user?.name ?? session.user?.email ?? 'unknown'}`,
+          incidentId: id,
+          userId: session.user?.id,
+        },
+      });
+
+      return updatedIncident;
+    });
+
+    // Cancel escalation timer
+    await cancelEscalation(id);
+
+    // Emit SSE event
+    incidentEvents.emitIncidentUpdate({
+      type: 'acknowledged',
+      incident: {
+        id: updated.id,
+        number: updated.number,
+        title: updated.title,
+        status: updated.status,
+        urgency: updated.urgency,
+        serviceId: updated.serviceId,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+        acknowledgedAt: updated.acknowledgedAt?.toISOString() ?? null,
+        resolvedAt: updated.resolvedAt?.toISOString() ?? null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    return NextResponse.json(updated);
+  } catch (error) {
+    console.error('Acknowledge incident error:', error);
     return NextResponse.json(
-      { error: "Incident can only be acknowledged when triggered" },
-      { status: 400 }
+      { error: 'Internal server error' },
+      { status: 500 }
     );
   }
-
-  const updated = await prisma.incident.update({
-    where: { id },
-    data: {
-      status: "ACKNOWLEDGED",
-      acknowledgedAt: new Date(),
-      logs: {
-        create: {
-          type: "ACKNOWLEDGED",
-          message: `Acknowledged by ${session.user.name || session.user.email}`,
-          userId: session.user.id,
-        },
-      },
-    },
-    include: {
-      service: { select: { id: true, name: true } },
-      responders: {
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-        },
-      },
-    },
-  });
-
-  return NextResponse.json(updated);
 }

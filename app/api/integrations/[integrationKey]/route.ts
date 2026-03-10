@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@/lib/generated/prisma/client';
+import { triggerEscalation } from '@/lib/escalation';
+import { incidentEvents } from '@/lib/event-emitter';
 
 const webhookPayloadSchema = z.object({
   summary: z.string().min(1, 'summary is required'),
@@ -119,6 +121,29 @@ export async function POST(
       });
 
       return { alert, incident };
+    });
+
+    // Emit SSE event for incident creation
+    incidentEvents.emitIncidentUpdate({
+      type: 'created',
+      incident: {
+        id: result.incident.id,
+        number: result.incident.number,
+        title: result.incident.title,
+        status: result.incident.status,
+        urgency: result.incident.urgency,
+        serviceId: result.incident.serviceId,
+        createdAt: result.incident.createdAt.toISOString(),
+        updatedAt: result.incident.updatedAt.toISOString(),
+        acknowledgedAt: null,
+        resolvedAt: null,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Trigger escalation (fire-and-forget — don't block the webhook response)
+    triggerEscalation(result.incident.id).catch((err) => {
+      console.error('Failed to trigger escalation:', err);
     });
 
     return NextResponse.json(
