@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
+  LayoutDashboard,
   AlertTriangle,
   Server,
   CalendarDays,
@@ -18,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Incidents", href: "/incidents", icon: AlertTriangle },
   { label: "Services", href: "/services", icon: Server },
   { label: "On-Call Schedules", href: "/schedules", icon: CalendarDays },
