@@ -1,27 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { searchParams } = request.nextUrl;
-  const search = searchParams.get("search") || "";
+  const { id } = await params;
 
-  const where: Record<string, unknown> = {};
-
-  if (search) {
-    where.OR = [
-      { name: { contains: search, mode: "insensitive" } },
-      { description: { contains: search, mode: "insensitive" } },
-    ];
-  }
-
-  const policies = await prisma.escalationPolicy.findMany({
-    where,
+  const policy = await prisma.escalationPolicy.findUnique({
+    where: { id },
     include: {
       rules: {
         include: {
@@ -34,20 +27,30 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { order: "asc" },
       },
+      services: {
+        select: { id: true, name: true, status: true },
+      },
       _count: { select: { services: true } },
     },
-    orderBy: { updatedAt: "desc" },
   });
 
-  return NextResponse.json(policies);
+  if (!policy) {
+    return NextResponse.json({ error: "Policy not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(policy);
 }
 
-export async function POST(request: Request) {
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { id } = await params;
   const body = await request.json();
   const { name, description, repeatCount, rules } = body;
 
@@ -58,7 +61,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const policy = await prisma.escalationPolicy.create({
+  // Delete existing rules and recreate
+  await prisma.escalationRule.deleteMany({
+    where: { escalationPolicyId: id },
+  });
+
+  const policy = await prisma.escalationPolicy.update({
+    where: { id },
     data: {
       name: name.trim(),
       description: description?.trim() || null,
@@ -109,5 +118,21 @@ export async function POST(request: Request) {
     },
   });
 
-  return NextResponse.json(policy, { status: 201 });
+  return NextResponse.json(policy);
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+
+  await prisma.escalationPolicy.delete({ where: { id } });
+
+  return NextResponse.json({ success: true });
 }
