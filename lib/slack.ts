@@ -126,14 +126,19 @@ export async function updateIncidentMessage(
     acknowledgedAt?: Date | null;
     resolvedAt?: Date | null;
   },
-  messageTs: string
+  messageTs: string,
+  channelId?: string
 ): Promise<void> {
   const slack = await getSlackClient(incident.serviceId);
   if (!slack) return;
 
+  // Use the provided channelId (from Slack interaction payload) if available,
+  // otherwise fall back to the resolved channel from config.
+  const targetChannel = channelId || slack.channelId;
+
   try {
     await slack.client.chat.update({
-      channel: slack.channelId,
+      channel: targetChannel,
       ts: messageTs,
       text: `Incident #${incident.number}: ${incident.title} [${incident.status}]`,
       blocks: buildIncidentBlocks(incident),

@@ -134,7 +134,7 @@ async function handleAcknowledge(
   // Update the Slack message to reflect new status
   const messageTs = payload.message?.ts;
   if (messageTs) {
-    await updateIncidentMessage(updated, messageTs);
+    await updateIncidentMessage(updated, messageTs, payload.channel?.id);
   }
 }
 
@@ -199,6 +199,6 @@ async function handleResolve(
   // Update the Slack message to reflect new status
   const messageTs = payload.message?.ts;
   if (messageTs) {
-    await updateIncidentMessage(updated, messageTs);
+    await updateIncidentMessage(updated, messageTs, payload.channel?.id);
   }
 }
