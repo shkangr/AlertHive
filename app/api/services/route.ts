@@ -63,8 +63,8 @@ export async function POST(request: Request) {
     data: {
       name: name.trim(),
       description: description?.trim() || null,
-      teamId: teamId || null,
-      escalationPolicyId: escalationPolicyId || null,
+      teamId: teamId && teamId !== "none" ? teamId : null,
+      escalationPolicyId: escalationPolicyId && escalationPolicyId !== "none" ? escalationPolicyId : null,
     },
     include: {
       team: { select: { id: true, name: true } },

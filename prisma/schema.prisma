@@ -75,6 +75,9 @@ model Service {
   escalationPolicyId String?
   escalationPolicy   EscalationPolicy? @relation(fields: [escalationPolicyId], references: [id], onDelete: SetNull)
 
+  slackChannelId   String?
+  slackChannelName String?
+
   incidents    Incident[]
   alerts       Alert[]
   integrations Integration[]

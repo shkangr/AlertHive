@@ -241,6 +241,7 @@ async function notifyAndSchedule(
     title: incident.title,
     status: incident.status,
     urgency: incident.urgency,
+    serviceId: incident.serviceId,
     service: incident.service,
     createdAt: incident.createdAt,
   };

@@ -146,6 +146,7 @@ export async function POST(
     console.log('[Webhook] Triggering Slack notification for incident:', result.incident.id);
     sendIncidentNotification({
       ...result.incident,
+      serviceId: integration.serviceId,
       service: integration.service,
     }).then((ts) => {
       console.log('[Webhook] Slack notification result:', ts ? `sent (ts: ${ts})` : 'skipped/failed');

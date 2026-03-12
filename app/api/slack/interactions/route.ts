@@ -79,7 +79,7 @@ async function handleAcknowledge(
 ) {
   const incident = await prisma.incident.findUnique({
     where: { id: incidentId },
-    include: { service: { select: { name: true } } },
+    include: { service: { select: { id: true, name: true } } },
   });
 
   if (!incident || incident.status !== 'TRIGGERED') {
@@ -97,7 +97,7 @@ async function handleAcknowledge(
         status: 'ACKNOWLEDGED',
         acknowledgedAt: now,
       },
-      include: { service: { select: { name: true } } },
+      include: { service: { select: { id: true, name: true } } },
     });
 
     await tx.incidentLog.create({
@@ -144,7 +144,7 @@ async function handleResolve(
 ) {
   const incident = await prisma.incident.findUnique({
     where: { id: incidentId },
-    include: { service: { select: { name: true } } },
+    include: { service: { select: { id: true, name: true } } },
   });
 
   if (!incident || incident.status === 'RESOLVED') {
@@ -162,7 +162,7 @@ async function handleResolve(
         status: 'RESOLVED',
         resolvedAt: now,
       },
-      include: { service: { select: { name: true } } },
+      include: { service: { select: { id: true, name: true } } },
     });
 
     await tx.incidentLog.create({

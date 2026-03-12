@@ -12,6 +12,11 @@ import {
   Key,
   BookOpen,
   Terminal,
+  Hash,
+  Lock,
+  RefreshCw,
+  MessageSquare,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -43,6 +48,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CreateServiceDialog } from "@/components/services/create-service-dialog";
 
 interface Integration {
@@ -123,6 +135,15 @@ export default function ServiceDetailPage() {
   const [usageGuideIntegration, setUsageGuideIntegration] = useState<Integration | null>(null);
   const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
+  // Slack channel config
+  const [slackChannelId, setSlackChannelId] = useState("");
+  const [slackChannelName, setSlackChannelName] = useState("");
+  const [slackChannels, setSlackChannels] = useState<{ id: string; name: string; is_private: boolean }[]>([]);
+  const [loadingSlackChannels, setLoadingSlackChannels] = useState(false);
+  const [savingSlack, setSavingSlack] = useState(false);
+  const [slackSuccess, setSlackSuccess] = useState(false);
+  const [slackError, setSlackError] = useState("");
+
   const fetchService = useCallback(async () => {
     const res = await fetch(`/api/services/${id}`);
     if (res.ok) {
@@ -131,9 +152,19 @@ export default function ServiceDetailPage() {
     setLoading(false);
   }, [id]);
 
+  const fetchSlackConfig = useCallback(async () => {
+    const res = await fetch(`/api/services/${id}/slack`);
+    if (res.ok) {
+      const data = await res.json();
+      setSlackChannelId(data.channelId);
+      setSlackChannelName(data.channelName);
+    }
+  }, [id]);
+
   useEffect(() => {
     fetchService();
-  }, [fetchService]);
+    fetchSlackConfig();
+  }, [fetchService, fetchSlackConfig]);
 
   async function copyKey(key: string) {
     await navigator.clipboard.writeText(key);
@@ -179,6 +210,51 @@ export default function ServiceDetailPage() {
     const res = await fetch(`/api/services/${id}`, { method: "DELETE" });
     if (res.ok) {
       router.push("/services");
+    }
+  }
+
+  async function fetchSlackChannels() {
+    setLoadingSlackChannels(true);
+    setSlackError("");
+    const res = await fetch(`/api/services/${id}/slack/channels`);
+    if (res.ok) {
+      setSlackChannels(await res.json());
+    } else {
+      const data = await res.json();
+      setSlackError(data.error || "Failed to fetch channels");
+    }
+    setLoadingSlackChannels(false);
+  }
+
+  async function handleSaveSlackChannel(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingSlack(true);
+    setSlackError("");
+    setSlackSuccess(false);
+
+    const res = await fetch(`/api/services/${id}/slack`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelId: slackChannelId, channelName: slackChannelName }),
+    });
+
+    setSavingSlack(false);
+    if (!res.ok) {
+      const data = await res.json();
+      setSlackError(data.error || "Failed to save");
+      return;
+    }
+    setSlackSuccess(true);
+    setTimeout(() => setSlackSuccess(false), 3000);
+  }
+
+  async function handleRemoveSlackChannel() {
+    const res = await fetch(`/api/services/${id}/slack`, { method: "DELETE" });
+    if (res.ok) {
+      setSlackChannelId("");
+      setSlackChannelName("");
+      setSlackSuccess(true);
+      setTimeout(() => setSlackSuccess(false), 3000);
     }
   }
 
@@ -359,6 +435,122 @@ export default function ServiceDetailPage() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Slack Notification Channel */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              Slack Notifications
+            </CardTitle>
+            <CardDescription>
+              {slackChannelId
+                ? `Notifications for this service go to #${slackChannelName || slackChannelId}`
+                : "Using global default channel. Set a channel to override."}
+            </CardDescription>
+          </div>
+          {slackChannelId && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={handleRemoveSlackChannel}
+            >
+              <X className="mr-1 h-3.5 w-3.5" />
+              Reset to Global
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {slackError && (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive mb-4">
+              {slackError}
+            </div>
+          )}
+          {slackSuccess && (
+            <div className="rounded-md bg-[#06AC38]/10 p-3 text-sm text-[#06AC38] flex items-center gap-2 mb-4">
+              <Check className="h-4 w-4" />
+              Saved successfully
+            </div>
+          )}
+          <form onSubmit={handleSaveSlackChannel}>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Notification Channel</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={fetchSlackChannels}
+                  disabled={loadingSlackChannels}
+                >
+                  <RefreshCw
+                    className={`mr-1 h-3 w-3 ${loadingSlackChannels ? "animate-spin" : ""}`}
+                  />
+                  {loadingSlackChannels ? "Loading..." : "Fetch Channels"}
+                </Button>
+              </div>
+              {slackChannels.length > 0 ? (
+                <Select
+                  value={slackChannelId}
+                  onValueChange={(v) => {
+                    setSlackChannelId(v ?? "");
+                    const ch = slackChannels.find((c) => c.id === v);
+                    setSlackChannelName(ch?.name || "");
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {slackChannels.map((ch) => (
+                      <SelectItem key={ch.id} value={ch.id}>
+                        <span className="flex items-center gap-1.5">
+                          {ch.is_private ? (
+                            <Lock className="h-3 w-3" />
+                          ) : (
+                            <Hash className="h-3 w-3" />
+                          )}
+                          {ch.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Channel ID (e.g., C0123456789)"
+                    value={slackChannelId}
+                    onChange={(e) => setSlackChannelId(e.target.value)}
+                  />
+                  {slackChannelName && !slackChannels.length && (
+                    <p className="text-xs text-muted-foreground">
+                      Current channel: #{slackChannelName}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Enter a channel ID manually, or click &quot;Fetch Channels&quot; to
+                    select from a list
+                  </p>
+                </div>
+              )}
+              <div className="flex justify-end pt-1">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="bg-[#06AC38] hover:bg-[#059030] text-white"
+                  disabled={savingSlack}
+                >
+                  {savingSlack ? "Saving..." : "Save Channel"}
+                </Button>
+              </div>
+            </div>
+          </form>
         </CardContent>
       </Card>
 

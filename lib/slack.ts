@@ -3,10 +3,11 @@ import type { KnownBlock } from '@slack/types';
 import { prisma } from '@/lib/db';
 
 /**
- * Get a Slack WebClient from the first SlackConfig in the database.
+ * Get a Slack WebClient with the channel resolved for a specific service.
+ * If the service has its own slackChannelId, use that; otherwise fall back to global config.
  * Returns null if no config exists (gracefully skip).
  */
-export async function getSlackClient(): Promise<{
+export async function getSlackClient(serviceId?: string): Promise<{
   client: WebClient;
   channelId: string;
 } | null> {
@@ -24,14 +25,28 @@ export async function getSlackClient(): Promise<{
     return null;
   }
 
-  if (!config.channelId) {
+  // Resolve channel: service-specific → global fallback
+  let channelId = config.channelId;
+
+  if (serviceId) {
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+      select: { slackChannelId: true, slackChannelName: true },
+    });
+    if (service?.slackChannelId) {
+      console.log(`[Slack] Using service-specific channel: ${service.slackChannelId} (#${service.slackChannelName})`);
+      channelId = service.slackChannelId;
+    }
+  }
+
+  if (!channelId) {
     console.log('[Slack] No channelId configured, skipping');
     return null;
   }
 
   return {
     client: new WebClient(config.botToken),
-    channelId: config.channelId,
+    channelId,
   };
 }
 
@@ -49,6 +64,7 @@ interface IncidentForSlack {
   title: string;
   status: string;
   urgency: string;
+  serviceId: string;
   service: { name: string };
   createdAt: Date;
 }
@@ -67,7 +83,7 @@ export async function sendIncidentNotification(
     service: incident.service?.name,
   });
 
-  const slack = await getSlackClient();
+  const slack = await getSlackClient(incident.serviceId);
   if (!slack) {
     console.log('[Slack] No Slack client available, notification skipped');
     return null;
@@ -112,7 +128,7 @@ export async function updateIncidentMessage(
   },
   messageTs: string
 ): Promise<void> {
-  const slack = await getSlackClient();
+  const slack = await getSlackClient(incident.serviceId);
   if (!slack) return;
 
   try {
@@ -144,6 +160,7 @@ export async function sendEscalationDM(
     return;
   }
 
+  // DM uses the bot token (global), no need for service-specific channel
   const slack = await getSlackClient();
   if (!slack) return;
 
