@@ -143,11 +143,14 @@ export async function POST(
     });
 
     // Send Slack channel notification (fire-and-forget)
+    console.log('[Webhook] Triggering Slack notification for incident:', result.incident.id);
     sendIncidentNotification({
       ...result.incident,
       service: integration.service,
+    }).then((ts) => {
+      console.log('[Webhook] Slack notification result:', ts ? `sent (ts: ${ts})` : 'skipped/failed');
     }).catch((err) => {
-      console.error('Failed to send Slack notification:', err);
+      console.error('[Webhook] Failed to send Slack notification:', err);
     });
 
     // Trigger escalation (fire-and-forget — don't block the webhook response)

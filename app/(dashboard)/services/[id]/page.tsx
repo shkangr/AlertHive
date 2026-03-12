@@ -10,6 +10,8 @@ import {
   Pencil,
   Trash2,
   Key,
+  BookOpen,
+  Terminal,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -117,6 +120,8 @@ export default function ServiceDetailPage() {
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [integrationName, setIntegrationName] = useState("");
   const [addingIntegration, setAddingIntegration] = useState(false);
+  const [usageGuideIntegration, setUsageGuideIntegration] = useState<Integration | null>(null);
+  const [copiedSnippet, setCopiedSnippet] = useState<string | null>(null);
 
   const fetchService = useCallback(async () => {
     const res = await fetch(`/api/services/${id}`);
@@ -149,10 +154,23 @@ export default function ServiceDetailPage() {
     setAddingIntegration(false);
 
     if (res.ok) {
+      const created: Integration = await res.json();
       setAddIntegrationOpen(false);
       setIntegrationName("");
+      setUsageGuideIntegration(created);
       fetchService();
     }
+  }
+
+  function copySnippet(text: string, id: string) {
+    navigator.clipboard.writeText(text);
+    setCopiedSnippet(id);
+    setTimeout(() => setCopiedSnippet(null), 2000);
+  }
+
+  function getEndpointUrl(key: string) {
+    const base = typeof window !== "undefined" ? window.location.origin : "https://your-domain.com";
+    return `${base}/api/integrations/${key}`;
   }
 
   async function handleDelete() {
@@ -323,9 +341,20 @@ export default function ServiceDetailPage() {
                       </button>
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(integration.createdAt).toLocaleDateString()}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setUsageGuideIntegration(integration)}
+                    >
+                      <BookOpen className="mr-1 h-3 w-3" />
+                      Usage Guide
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(integration.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -432,6 +461,291 @@ export default function ServiceDetailPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Integration Usage Guide Dialog */}
+      <Dialog
+        open={!!usageGuideIntegration}
+        onOpenChange={(open) => !open && setUsageGuideIntegration(null)}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5" />
+              {usageGuideIntegration?.name} — Usage Guide
+            </DialogTitle>
+            <DialogDescription>
+              Send events to this integration to create incidents on{" "}
+              <span className="font-medium text-foreground">{service.name}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          {usageGuideIntegration && (
+            <div className="space-y-5 py-2">
+              {/* Endpoint */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Endpoint
+                </Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-md bg-muted px-3 py-2 text-sm font-mono break-all">
+                    POST {getEndpointUrl(usageGuideIntegration.integrationKey)}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() =>
+                      copySnippet(
+                        getEndpointUrl(usageGuideIntegration.integrationKey),
+                        "endpoint"
+                      )
+                    }
+                  >
+                    {copiedSnippet === "endpoint" ? (
+                      <Check className="h-4 w-4 text-[#06AC38]" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Tabs: cURL / JavaScript / Python */}
+              <Tabs defaultValue="curl">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Example Request
+                  </Label>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="curl" className="text-xs px-3 h-6">cURL</TabsTrigger>
+                    <TabsTrigger value="javascript" className="text-xs px-3 h-6">JavaScript</TabsTrigger>
+                    <TabsTrigger value="python" className="text-xs px-3 h-6">Python</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent value="curl" className="mt-2">
+                  <div className="relative">
+                    <pre className="rounded-md bg-[#1e1e2e] p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre">
+{`curl -X POST \\
+  ${getEndpointUrl(usageGuideIntegration.integrationKey)} \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "summary": "High CPU usage on web-server-01",
+    "severity": "CRITICAL",
+    "dedupKey": "cpu-high-web-01",
+    "rawPayload": {
+      "source": "monitoring-agent",
+      "metric": "cpu.usage",
+      "value": 98.5
+    }
+  }'`}
+                    </pre>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2 h-7 text-gray-400 hover:text-white"
+                      onClick={() =>
+                        copySnippet(
+                          `curl -X POST \\\n  ${getEndpointUrl(usageGuideIntegration.integrationKey)} \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "summary": "High CPU usage on web-server-01",\n    "severity": "CRITICAL",\n    "dedupKey": "cpu-high-web-01",\n    "rawPayload": {\n      "source": "monitoring-agent",\n      "metric": "cpu.usage",\n      "value": 98.5\n    }\n  }'`,
+                          "curl"
+                        )
+                      }
+                    >
+                      {copiedSnippet === "curl" ? (
+                        <Check className="h-3.5 w-3.5 text-[#06AC38]" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="javascript" className="mt-2">
+                  <div className="relative">
+                    <pre className="rounded-md bg-[#1e1e2e] p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre">
+{`const response = await fetch(
+  "${getEndpointUrl(usageGuideIntegration.integrationKey)}",
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      summary: "High CPU usage on web-server-01",
+      severity: "CRITICAL",
+      dedupKey: "cpu-high-web-01",
+      rawPayload: {
+        source: "monitoring-agent",
+        metric: "cpu.usage",
+        value: 98.5,
+      },
+    }),
+  }
+);
+
+const data = await response.json();
+console.log(data);`}
+                    </pre>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2 h-7 text-gray-400 hover:text-white"
+                      onClick={() =>
+                        copySnippet(
+                          `const response = await fetch(\n  "${getEndpointUrl(usageGuideIntegration.integrationKey)}",\n  {\n    method: "POST",\n    headers: { "Content-Type": "application/json" },\n    body: JSON.stringify({\n      summary: "High CPU usage on web-server-01",\n      severity: "CRITICAL",\n      dedupKey: "cpu-high-web-01",\n      rawPayload: {\n        source: "monitoring-agent",\n        metric: "cpu.usage",\n        value: 98.5,\n      },\n    }),\n  }\n);\n\nconst data = await response.json();\nconsole.log(data);`,
+                          "javascript"
+                        )
+                      }
+                    >
+                      {copiedSnippet === "javascript" ? (
+                        <Check className="h-3.5 w-3.5 text-[#06AC38]" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="python" className="mt-2">
+                  <div className="relative">
+                    <pre className="rounded-md bg-[#1e1e2e] p-4 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre">
+{`import requests
+
+response = requests.post(
+    "${getEndpointUrl(usageGuideIntegration.integrationKey)}",
+    json={
+        "summary": "High CPU usage on web-server-01",
+        "severity": "CRITICAL",
+        "dedupKey": "cpu-high-web-01",
+        "rawPayload": {
+            "source": "monitoring-agent",
+            "metric": "cpu.usage",
+            "value": 98.5,
+        },
+    },
+)
+
+print(response.json())`}
+                    </pre>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute top-2 right-2 h-7 text-gray-400 hover:text-white"
+                      onClick={() =>
+                        copySnippet(
+                          `import requests\n\nresponse = requests.post(\n    "${getEndpointUrl(usageGuideIntegration.integrationKey)}",\n    json={\n        "summary": "High CPU usage on web-server-01",\n        "severity": "CRITICAL",\n        "dedupKey": "cpu-high-web-01",\n        "rawPayload": {\n            "source": "monitoring-agent",\n            "metric": "cpu.usage",\n            "value": 98.5,\n        },\n    },\n)\n\nprint(response.json())`,
+                          "python"
+                        )
+                      }
+                    >
+                      {copiedSnippet === "python" ? (
+                        <Check className="h-3.5 w-3.5 text-[#06AC38]" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              <Separator />
+
+              {/* Payload Reference */}
+              <div className="space-y-3">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Payload Reference
+                </Label>
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="px-3 py-2 text-left font-medium">Field</th>
+                        <th className="px-3 py-2 text-left font-medium">Type</th>
+                        <th className="px-3 py-2 text-left font-medium">Required</th>
+                        <th className="px-3 py-2 text-left font-medium">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-b">
+                        <td className="px-3 py-2 font-mono text-xs">summary</td>
+                        <td className="px-3 py-2 text-muted-foreground">string</td>
+                        <td className="px-3 py-2"><Badge variant="outline" className="text-xs">Required</Badge></td>
+                        <td className="px-3 py-2 text-muted-foreground">Alert summary — becomes the incident title</td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-3 py-2 font-mono text-xs">severity</td>
+                        <td className="px-3 py-2 text-muted-foreground">enum</td>
+                        <td className="px-3 py-2 text-muted-foreground text-xs">Optional</td>
+                        <td className="px-3 py-2 text-muted-foreground">
+                          <code className="text-xs">CRITICAL</code> | <code className="text-xs">ERROR</code> | <code className="text-xs">WARNING</code> | <code className="text-xs">INFO</code> — defaults to ERROR
+                        </td>
+                      </tr>
+                      <tr className="border-b">
+                        <td className="px-3 py-2 font-mono text-xs">dedupKey</td>
+                        <td className="px-3 py-2 text-muted-foreground">string</td>
+                        <td className="px-3 py-2 text-muted-foreground text-xs">Optional</td>
+                        <td className="px-3 py-2 text-muted-foreground">Deduplication key — same key updates existing open alert instead of creating a new one</td>
+                      </tr>
+                      <tr>
+                        <td className="px-3 py-2 font-mono text-xs">rawPayload</td>
+                        <td className="px-3 py-2 text-muted-foreground">object</td>
+                        <td className="px-3 py-2 text-muted-foreground text-xs">Optional</td>
+                        <td className="px-3 py-2 text-muted-foreground">Arbitrary JSON metadata stored with the alert</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Severity → Urgency mapping */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Severity → Urgency Mapping
+                </Label>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                    <div className="h-2 w-2 rounded-full bg-[#CC0000]" />
+                    <span className="font-mono text-xs">CRITICAL / ERROR</span>
+                    <span className="ml-auto text-muted-foreground">→ HIGH urgency</span>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-md border px-3 py-2">
+                    <div className="h-2 w-2 rounded-full bg-[#FAB436]" />
+                    <span className="font-mono text-xs">WARNING / INFO</span>
+                    <span className="ml-auto text-muted-foreground">→ LOW urgency</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Response examples */}
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Response
+                </Label>
+                <div className="rounded-md bg-[#1e1e2e] p-4 text-sm font-mono overflow-x-auto">
+                  <p className="text-gray-400 mb-1">// 201 Created — new incident</p>
+                  <pre className="text-green-400 whitespace-pre">
+{`{
+  "message": "Alert created",
+  "alertId": "clx...",
+  "incidentId": "clx...",
+  "deduplicated": false
+}`}
+                  </pre>
+                  <p className="text-gray-400 mt-3 mb-1">// 200 OK — deduplicated (existing open alert updated)</p>
+                  <pre className="text-yellow-400 whitespace-pre">
+{`{
+  "message": "Alert updated (dedup)",
+  "alertId": "clx...",
+  "incidentId": "clx...",
+  "deduplicated": true
+}`}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

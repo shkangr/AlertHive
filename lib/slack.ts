@@ -11,8 +11,21 @@ export async function getSlackClient(): Promise<{
   channelId: string;
 } | null> {
   const config = await prisma.slackConfig.findFirst();
+  console.log('[Slack] SlackConfig lookup:', config ? {
+    id: config.id,
+    hasBotToken: !!config.botToken,
+    botTokenPrefix: config.botToken?.slice(0, 10) + '...',
+    channelId: config.channelId,
+    channelName: config.channelName,
+  } : 'NOT FOUND');
+
   if (!config?.botToken) {
-    console.log('[Slack] No SlackConfig found, skipping Slack notification');
+    console.log('[Slack] No SlackConfig or botToken found, skipping');
+    return null;
+  }
+
+  if (!config.channelId) {
+    console.log('[Slack] No channelId configured, skipping');
     return null;
   }
 
@@ -47,8 +60,20 @@ interface IncidentForSlack {
 export async function sendIncidentNotification(
   incident: IncidentForSlack
 ): Promise<string | null> {
+  console.log('[Slack] sendIncidentNotification called for incident:', {
+    id: incident.id,
+    number: incident.number,
+    title: incident.title,
+    service: incident.service?.name,
+  });
+
   const slack = await getSlackClient();
-  if (!slack) return null;
+  if (!slack) {
+    console.log('[Slack] No Slack client available, notification skipped');
+    return null;
+  }
+
+  console.log('[Slack] Sending message to channel:', slack.channelId);
 
   try {
     const result = await slack.client.chat.postMessage({
@@ -57,9 +82,22 @@ export async function sendIncidentNotification(
       blocks: buildIncidentBlocks(incident),
     });
 
+    console.log('[Slack] Message sent successfully:', {
+      ok: result.ok,
+      ts: result.ts,
+      channel: result.channel,
+      error: result.error,
+    });
+
     return result.ts ?? null;
-  } catch (error) {
-    console.error('[Slack] Failed to send incident notification:', error);
+  } catch (error: unknown) {
+    const slackError = error as { code?: string; data?: { error?: string; response_metadata?: unknown } };
+    console.error('[Slack] Failed to send incident notification:', {
+      message: error instanceof Error ? error.message : String(error),
+      code: slackError.code,
+      slackError: slackError.data?.error,
+      metadata: slackError.data?.response_metadata,
+    });
     return null;
   }
 }
